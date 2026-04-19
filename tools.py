@@ -34,7 +34,9 @@ from qiskit_algorithms.utils import algorithm_globals
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (accuracy_score, precision_score, recall_score,
-                             f1_score, classification_report)
+                             f1_score, classification_report,
+                             roc_auc_score, matthews_corrcoef,
+                             balanced_accuracy_score, cohen_kappa_score)
 from sklearn.feature_selection import SelectKBest, f_classif, mutual_info_classif
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
@@ -408,6 +410,38 @@ def compute_metrics(model, X, y_true):
         "inference_time":  float(elapsed),
     }
 
+def compute_extended_metrics(y_true, y_pred, y_scores=None) -> dict:
+    """MCC, balanced accuracy, Cohen's kappa, ROC-AUC (if scores provided)."""
+    result = {
+        "mcc":               float(matthews_corrcoef(y_true, y_pred)),
+        "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
+        "kappa":             float(cohen_kappa_score(y_true, y_pred)),
+        "roc_auc":           float("nan"),
+    }
+    if y_scores is not None:
+        try:
+            result["roc_auc"] = float(roc_auc_score(y_true, y_scores))
+        except Exception:
+            pass
+    return result
+
+
+def get_scores(clf, X) -> np.ndarray | None:
+    """Return decision scores for ROC-AUC. Tries predict_scores → predict_proba → decision_function."""
+    for method in ("predict_scores", "predict_proba", "decision_function"):
+        fn = getattr(clf, method, None)
+        if fn is None:
+            continue
+        try:
+            out = fn(X)
+            if out.ndim == 2:
+                return out[:, 1]
+            return out
+        except Exception:
+            pass
+    return None
+
+
 def compute_metrics_per_class(model, X, y_true):
     """
     Returns per-class precision, recall and F1 as a dict of dicts.
@@ -467,12 +501,17 @@ def create_qnn_circuit(num_qubits, feature_map, ansatz):
     wt_params = sorted(ansatz.parameters,      key=lambda p: p.name)
     return qc, in_params, wt_params
 
-def _make_qnn_classifier(qnn, wt_params):
+def _make_qnn_classifier(qnn, wt_params, loss_history=None):
+    callback = None
+    if loss_history is not None:
+        def callback(weights, obj_val):
+            loss_history.append(float(obj_val))
     return NeuralNetworkClassifier(
         neural_network=qnn,
         optimizer=COBYLA(maxiter=100, tol=1e-4),
         one_hot=False,
         initial_point=np.random.uniform(0, 2 * np.pi, len(wt_params)),
+        callback=callback,
     )
 
 
@@ -571,12 +610,14 @@ def evaluate_qnn_statevector(feature_map, train_features, train_labels,
     qc, in_params, wt_params = create_qnn_circuit(num_q, feature_map, ansatz)
     qnn = SamplerQNN(circuit=qc, input_params=in_params, weight_params=wt_params,
                      interpret=parity, output_shape=2)
-    clf = _make_qnn_classifier(qnn, wt_params)
+    loss_history = []
+    clf = _make_qnn_classifier(qnn, wt_params, loss_history=loss_history)
     t0  = time.time()
     clf.fit(train_features, train_labels)
     train_t = time.time() - t0
     metrics = compute_metrics(clf, val_features, val_labels)
     metrics["training_time"] = float(train_t)
+    metrics["loss_history"] = loss_history
     return metrics, clf
 
 def evaluate_qnn_noise_sim(feature_map, train_features, train_labels,
@@ -599,12 +640,14 @@ def evaluate_qnn_noise_sim(feature_map, train_features, train_labels,
     qc, in_params, wt_params = create_qnn_circuit(num_q, feature_map, ansatz)
     qnn = SamplerQNN(circuit=qc, input_params=in_params, weight_params=wt_params,
                      sampler=sampler, interpret=parity, output_shape=2)
-    clf = _make_qnn_classifier(qnn, wt_params)
+    loss_history = []
+    clf = _make_qnn_classifier(qnn, wt_params, loss_history=loss_history)
     t0  = time.time()
     clf.fit(train_features, train_labels)
     train_t = time.time() - t0
     metrics = compute_metrics(clf, val_features, val_labels)
     metrics["training_time"] = float(train_t)
+    metrics["loss_history"] = loss_history
     return metrics, clf
 
 def evaluate_qnn_hardware(feature_map, train_features, train_labels,

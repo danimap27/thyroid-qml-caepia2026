@@ -135,6 +135,10 @@ class _KernelSVC:
         K = _fidelity_matrix(np.asarray(X), self._X_train, self._reps)
         return self._svc.predict(K)
 
+    def predict_scores(self, X):
+        K = _fidelity_matrix(np.asarray(X), self._X_train, self._reps)
+        return self._svc.decision_function(K)
+
 
 # ── VQC classifier ─────────────────────────────────────────────────────────────
 
@@ -159,6 +163,7 @@ class _VQCC:
         self._seed = seed
         self._theta = None
         self._H = _parity_H(n_q)
+        self._loss_history: list[float] = []
 
     def _exp(self, xi: np.ndarray, theta: np.ndarray) -> float:
         ry0 = theta[           : self._n_q].tolist()
@@ -174,6 +179,7 @@ class _VQCC:
     def fit(self, X, y):
         np.random.seed(self._seed)
         theta0 = np.random.uniform(0, 2 * _PI, 4 * self._n_q)
+        self._loss_history = []
 
         def loss(theta):
             eps = 1e-7
@@ -181,7 +187,9 @@ class _VQCC:
             for xi, yi in zip(X, y):
                 p1 = float(np.clip((1.0 - self._exp(xi, theta)) / 2.0, eps, 1.0 - eps))
                 total -= float(yi) * math.log(p1) + (1.0 - float(yi)) * math.log(1.0 - p1)
-            return total / len(X)
+            val = total / len(X)
+            self._loss_history.append(val)
+            return val
 
         res = minimize(loss, theta0, method="COBYLA",
                        options={"maxiter": self._max_iter, "rhobeg": 0.1})
@@ -191,6 +199,10 @@ class _VQCC:
     def predict(self, X):
         return np.array([1 if self._exp(xi, self._theta) < 0.0 else 0
                          for xi in np.asarray(X)])
+
+    def predict_scores(self, X):
+        """Expectation values negated so higher score → class 1."""
+        return np.array([-self._exp(xi, self._theta) for xi in np.asarray(X)])
 
 
 # ── Public API (signatures called by runner.py _run_model_cudaq) ──────────────
@@ -227,6 +239,7 @@ def evaluate_qnn_statevector(n_qubits: int, reps_fm: int, reps_ansatz: int,
     clf.fit(X_tr, y_tr)
     m = compute_metrics(clf, X_te, y_te)
     m["training_time"] = float(time.time() - t0)
+    m["loss_history"] = clf._loss_history
     return m, clf
 
 
@@ -239,5 +252,6 @@ def evaluate_qnn_noise_sim(n_qubits: int, reps_fm: int, reps_ansatz: int,
     clf.fit(X_tr, y_tr)
     m = compute_metrics(clf, X_te, y_te)
     m["training_time"] = float(time.time() - t0)
+    m["loss_history"] = clf._loss_history
     _clear_noise()
     return m, clf

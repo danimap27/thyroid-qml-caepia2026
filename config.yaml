@@ -14,7 +14,7 @@ tables_dir: "./paper/tables"
 
 # ── Experiment dimensions ────────────────────────────────────────────────────
 test_size: 0.3
-seeds: [12345]
+seeds: [12345, 11111, 22222, 33333, 44444]
 
 models:
   - name: "svm_classical"
@@ -67,12 +67,12 @@ phases:
     filters:
       noise: true
 
-expected_runs: 15
+expected_runs: 150  # 5 models × 3 subsets × 5 seeds × 2 backends
 
 # ── Monitor summary ──────────────────────────────────────────────────────────
 results:
   file_pattern: "*.csv"
-  group_by: ["model", "subset"]
+  group_by: ["backend", "model", "subset"]
   metrics: ["accuracy", "sensitivity", "specificity", "training_time"]
 
 # ── LaTeX labels ─────────────────────────────────────────────────────────────

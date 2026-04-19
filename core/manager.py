@@ -56,10 +56,11 @@ def clear():
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def header(name: str):
+def header(name: str, backend: str = "qiskit"):
     w = 70
     print("=" * w)
     print(f"{'HERCULES HUB — ' + name.upper():^{w}}")
+    print(f"{'[ backend: ' + backend.upper() + ' ]':^{w}}")
     print("=" * w)
 
 
@@ -347,9 +348,9 @@ def do_check(cfg: dict, phase: Optional[dict] = None):
 # Phase submission
 # ---------------------------------------------------------------------------
 
-def do_refresh(config_path: str, cfg: dict):
-    print(f"\n[INFO] Generating command files via runner.py...")
-    ok = run(f"python runner.py --config {config_path} --export-commands")
+def do_refresh(config_path: str, cfg: dict, backend: str = "qiskit"):
+    print(f"\n[INFO] Generating command files via runner.py (backend={backend})...")
+    ok = run(f"python runner.py --config {config_path} --export-commands --backend {backend}")
     if ok:
         print("[OK] Done.")
         for p in cfg.get("phases", []):
@@ -407,6 +408,12 @@ def do_tables(config_path: str):
     input("\nEnter to return...")
 
 
+def do_ablation(config_path: str, metric: str = "accuracy"):
+    print(f"\n[ABLATION] Running analyze_ablation.py (primary metric: {metric})...")
+    run(f"python core/analyze_ablation.py --config {config_path} --metric {metric}")
+    input("\nEnter to return...")
+
+
 # ---------------------------------------------------------------------------
 # Main menu
 # ---------------------------------------------------------------------------
@@ -422,13 +429,14 @@ def main():
     phases = cfg.get("phases", [])
     slurm_sh = cfg.get("slurm_script", "core/slurm_generic.sh")
     conda_env = cfg.get("conda_env", "experiment")
+    current_backend = cfg.get("quantum_backend", "qiskit")
 
     os.makedirs("logs", exist_ok=True)
     os.makedirs(cfg.get("output_dir", "./results"), exist_ok=True)
 
     while True:
         clear()
-        header(name)
+        header(name, current_backend)
         print()
         print("  [R]  Refresh command files from config.yaml")
         print()
@@ -441,13 +449,21 @@ def main():
         print("  [M]  Monitor progress  (live, refreshes every 2s)")
         print("  [C]  Check completed / pending runs")
         print("  [T]  Generate LaTeX tables")
+        print("  [A]  Ablation study analysis + figures")
+        print(f"  [B]  Switch backend  (active: {current_backend}  |  other: {'cudaq' if current_backend == 'qiskit' else 'qiskit'})")
         print("  [X]  Exit")
         print("-" * 70)
 
         c = input("Option: ").strip().upper()
 
-        if c == "R":
-            do_refresh(args.config, cfg)
+        if c == "B":
+            current_backend = "cudaq" if current_backend == "qiskit" else "qiskit"
+            print(f"\n[OK] Backend switched to: {current_backend}")
+            print("      Run [R] to regenerate command files with this backend.")
+            time.sleep(1.5)
+
+        elif c == "R":
+            do_refresh(args.config, cfg, current_backend)
 
         elif c == "F":
             overwrite_mode = do_check(cfg)
@@ -462,6 +478,9 @@ def main():
 
         elif c == "T":
             do_tables(args.config)
+
+        elif c == "A":
+            do_ablation(args.config)
 
         elif c == "X":
             print("\nDone.\n")

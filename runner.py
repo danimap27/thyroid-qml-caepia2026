@@ -41,6 +41,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Plot utilities — optional, fail silently if matplotlib not available
+try:
+    sys.path.insert(0, "core")
+    from plot_utils import plot_confusion_matrix, plot_roc_curve, plot_loss_curve
+    _HAS_PLOTS = True
+except Exception:
+    _HAS_PLOTS = False
+
+
+def _save_plots(run_dir: Path, y_true, y_pred, y_scores, loss_history, title: str):
+    if not _HAS_PLOTS:
+        return
+    try:
+        plot_confusion_matrix(y_true, y_pred, run_dir / "confusion_matrix.png", title=title)
+    except Exception as e:
+        logger.warning(f"confusion_matrix plot failed: {e}")
+    if y_scores is not None:
+        try:
+            from tools import compute_extended_metrics
+            auc = compute_extended_metrics(y_true, y_pred, y_scores).get("roc_auc")
+            plot_roc_curve(y_true, y_scores, run_dir / "roc_curve.png",
+                           title=title, auc_val=auc)
+        except Exception as e:
+            logger.warning(f"roc_curve plot failed: {e}")
+    if loss_history:
+        try:
+            plot_loss_curve(loss_history, run_dir / "loss_curve.png", title=f"{title} | Loss")
+        except Exception as e:
+            logger.warning(f"loss_curve plot failed: {e}")
+
 
 # =============================================================================
 # Data loading
@@ -80,8 +110,10 @@ def load_dataset(data_path: str):
 
 def prepare_split(X, y, subset: str, test_size: float, seed: int):
     from sklearn.preprocessing import MinMaxScaler
-    from tools import splitData
-    X_tr_raw, X_te_raw, y_tr, y_te = splitData(X, y, test_size=test_size)
+    from sklearn.model_selection import train_test_split
+    X_tr_raw, X_te_raw, y_tr, y_te = train_test_split(
+        X, y, test_size=test_size, random_state=seed, stratify=y
+    )
     indices = SUBSET_INDICES[subset]
     if indices is None:
         indices = list(range(X_tr_raw.shape[1]))
@@ -205,11 +237,13 @@ def run_model(model: str, X_tr, y_tr, X_te, y_te, cfg: dict):
             interpret=tools.parity,
             output_shape=2,
         )
-        clf = tools._make_qnn_classifier(qnn, wt_params)
+        loss_history = []
+        clf = tools._make_qnn_classifier(qnn, wt_params, loss_history=loss_history)
         t0 = time.time()
         clf.fit(X_tr, y_tr)
         m = tools.compute_metrics(clf, X_te, y_te)
         m["training_time"] = float(time.time() - t0)
+        m["loss_history"] = loss_history
         return m, clf
 
     raise ValueError(f"Unknown model: {model}")
@@ -235,21 +269,23 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def make_run_id(model: str, subset: str, seed) -> str:
-    return f"{model}__{subset}__s{seed}"
+def make_run_id(model: str, subset: str, seed, backend: str = "qiskit") -> str:
+    return f"{model}__{subset}__s{seed}__{backend}"
 
 
 def iter_runs(cfg: dict):
+    backend = cfg.get("quantum_backend", "qiskit")
     models = [m["name"] for m in cfg.get("models", [])]
     subsets = [s["name"] for s in cfg.get("subsets", [])]
     seeds = cfg.get("seeds", [12345])
     for model, subset, seed in product(models, subsets, seeds):
         yield {
-            "run_id": make_run_id(model, subset, seed),
+            "run_id": make_run_id(model, subset, seed, backend),
             "model": model,
             "subset": subset,
             "seed": int(seed),
             "noise": model.endswith("_noise"),
+            "backend": backend,
         }
 
 
@@ -292,10 +328,22 @@ def execute_run(run_spec: dict, cfg: dict, machine_id: str = "local"):
 
     sensitivity = float("nan")
     specificity = float("nan")
+    ext_metrics: dict = {}
+    loss_history: list = []
     t0 = time.time()
     try:
         metrics, clf = run_model(model, X_tr, y_tr, X_te, y_te, cfg)
+        loss_history = metrics.pop("loss_history", [])
         sensitivity, specificity = sens_spec_from_clf(clf, X_te, y_te)
+
+        from tools import compute_extended_metrics, get_scores
+        y_pred = np.asarray(clf.predict(X_te))
+        y_true_arr = np.asarray(y_te)
+        y_scores = get_scores(clf, X_te)
+        ext_metrics = compute_extended_metrics(y_true_arr, y_pred, y_scores)
+
+        _save_plots(run_dir, y_true_arr, y_pred, y_scores, loss_history,
+                    title=f"{model} | {subset} | s{seed}")
         status = "ok"
         error_msg = ""
     except Exception as exc:
@@ -317,6 +365,7 @@ def execute_run(run_spec: dict, cfg: dict, machine_id: str = "local"):
         "model": model,
         "subset": subset,
         "seed": seed,
+        "backend": run_spec.get("backend", cfg.get("quantum_backend", "qiskit")),
         "n_features": len(indices),
         "noise": bool(run_spec.get("noise", False)),
         "accuracy": metrics.get("accuracy", float("nan")),
@@ -325,6 +374,10 @@ def execute_run(run_spec: dict, cfg: dict, machine_id: str = "local"):
         "f1_macro": metrics.get("f1_macro", float("nan")),
         "sensitivity": sensitivity,
         "specificity": specificity,
+        "mcc": ext_metrics.get("mcc", float("nan")),
+        "balanced_accuracy": ext_metrics.get("balanced_accuracy", float("nan")),
+        "kappa": ext_metrics.get("kappa", float("nan")),
+        "roc_auc": ext_metrics.get("roc_auc", float("nan")),
         "training_time": metrics.get("training_time", float("nan")),
         "inference_time": metrics.get("inference_time", float("nan")),
         "wall_time_total": elapsed,
@@ -343,8 +396,8 @@ def execute_run(run_spec: dict, cfg: dict, machine_id: str = "local"):
         json.dump(row, f, indent=2)
 
     logger.info(
-        f"[DONE] {run_id} | acc={row['accuracy']:.4f} sens={sensitivity:.4f} "
-        f"spec={specificity:.4f} t={elapsed:.1f}s status={status}"
+        f"[DONE] {run_id} | acc={row['accuracy']:.4f} auc={row['roc_auc']:.4f} "
+        f"mcc={row['mcc']:.4f} sens={sensitivity:.4f} t={elapsed:.1f}s status={status}"
     )
 
 
@@ -352,16 +405,17 @@ def execute_run(run_spec: dict, cfg: dict, machine_id: str = "local"):
 # Command export
 # =============================================================================
 
-def export_commands(runs, out_path, config_path):
+def export_commands(runs, out_path, config_path, backend=None):
     lines = []
+    backend_flag = f" --backend {backend}" if backend else ""
     for r in runs:
         params = " ".join(
             f"--{k} {v}"
             for k, v in r.items()
-            if k not in ("run_id", "noise")
+            if k not in ("run_id", "noise", "backend")
         )
         lines.append(
-            f"python runner.py --config {config_path} --run-id {r['run_id']} {params}"
+            f"python runner.py --config {config_path} --run-id {r['run_id']} {params}{backend_flag}"
         )
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
@@ -391,7 +445,7 @@ def main():
     if args.export_commands:
         for phase in cfg.get("phases", []):
             filtered = apply_filter(all_runs, phase)
-            export_commands(filtered, phase["file"], args.config)
+            export_commands(filtered, phase["file"], args.config, backend=args.backend)
         return
 
     if args.run_id:
@@ -403,6 +457,7 @@ def main():
                 "subset": args.subset,
                 "seed": args.seed if args.seed is not None else 12345,
                 "noise": bool(args.model and args.model.endswith("_noise")),
+                "backend": cfg.get("quantum_backend", "qiskit"),
             },
         )
         execute_run(run_spec, cfg, args.machine_id)
