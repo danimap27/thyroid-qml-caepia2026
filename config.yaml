@@ -40,7 +40,7 @@ subsets:
 reps_fm: 1
 reps_ansatz: 1
 backend_name: "ibm_fez"
-use_gpu: false
+use_gpu: true
 
 # ── SLURM phases ─────────────────────────────────────────────────────────────
 # Phase 1 — classical baseline and ideal quantum models (fast).

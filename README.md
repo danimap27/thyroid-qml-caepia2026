@@ -68,6 +68,13 @@ python runner.py --model pegasos_ideal --subset top4 --seed 12345
 python runner.py
 ```
 
+### GPU requirements
+
+Noisy Aer simulations run on GPU via `qiskit-aer-gpu==0.16.0`, which requires
+a CUDA 12 runtime. On a system without an NVIDIA GPU, replace that line in
+`requirements.txt` with `qiskit-aer==0.16.0` and set `use_gpu: false` in
+`config.yaml` to fall back to CPU execution with `matrix_product_state`.
+
 ## Running on Hercules (CICA SLURM cluster)
 
 ```bash
@@ -80,6 +87,7 @@ module load Miniconda3
 conda create -n thyroid-qml python=3.10 -y
 source activate thyroid-qml
 pip install -r requirements.txt
+# Hercules gpu partition provides CUDA 12, which qiskit-aer-gpu requires.
 
 # 3. Launch the interactive HUB
 python core/manager.py

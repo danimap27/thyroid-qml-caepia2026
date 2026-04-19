@@ -18,12 +18,13 @@
 # =============================================================================
 
 # ── Resource defaults (override with sbatch flags or manager.py) ─────────────
-#SBATCH --partition=standard
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:1
 #SBATCH --output=logs/%x_%A_%a.out
 #SBATCH --error=logs/%x_%A_%a.err
 #SBATCH --time=12:00:00
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
+#SBATCH --mem=32G
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=dmarper2@upo.es
 
