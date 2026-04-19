@@ -39,7 +39,7 @@ subsets:
 # ── Quantum circuit configuration ────────────────────────────────────────────
 reps_fm: 1
 reps_ansatz: 1
-backend_name: "ibm_brisbane"
+backend_name: "ibm_fez"
 use_gpu: false
 
 # ── SLURM phases ─────────────────────────────────────────────────────────────
