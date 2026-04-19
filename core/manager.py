@@ -188,10 +188,16 @@ def do_monitor(cfg: dict):
                     try:
                         mask = pd.Series([True] * len(df), index=df.index)
                         for key, val in phase.get("filters", {}).items():
-                            col_map = {"noise": "noise_model", "source": "source", "ansatz": "ansatz"}
-                            col = col_map.get(key, key)
-                            if col in df.columns:
-                                mask &= df[col] == val
+                            if key not in df.columns:
+                                continue
+                            col_series = df[key]
+                            # Coerce string "True"/"False" → bool (CSV round-trip)
+                            if col_series.dtype == object:
+                                col_series = col_series.map(
+                                    {"True": True, "False": False,
+                                     "true": True, "false": False}
+                                ).fillna(col_series)
+                            mask &= col_series == val
                         phase_done = int(mask.sum())
                     except Exception:
                         pass

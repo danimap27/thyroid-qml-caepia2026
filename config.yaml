@@ -49,6 +49,11 @@ quantum_backend: "qiskit"
 cudaq_noise_p1: 0.001   # single-qubit depolarizing error (approx. IBM superconducting)
 cudaq_noise_p2: 0.005   # two-qubit (CX) depolarizing error
 
+# Heron R2 (ibm_fez) fallback — used by Qiskit when IBM API is unavailable
+# Source: IBM Quantum system specs, Heron R2 medians
+heron_r2_noise_p1: 0.0003   # 1Q depolarizing (median gate error ~0.03%)
+heron_r2_noise_p2: 0.004    # 2Q ECR depolarizing (median gate error ~0.4%)
+
 # ── SLURM phases ─────────────────────────────────────────────────────────────
 # Phase 1 — classical baseline and ideal quantum models (fast).
 # Phase 2 — noisy quantum models (slow; higher wall-clock per run).

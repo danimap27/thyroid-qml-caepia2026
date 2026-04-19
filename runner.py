@@ -129,14 +129,36 @@ def prepare_split(X, y, subset: str, test_size: float, seed: int):
 # Model dispatch — returns (metrics, classifier)
 # =============================================================================
 
-def _make_noisy_sampler(backend_name: str, use_gpu: bool):
-    from qiskit_ibm_runtime import QiskitRuntimeService
+def _heron_r2_noise_model(cfg: dict):
+    """Depolarizing NoiseModel approximating IBM Heron R2 (ibm_fez) without API."""
+    from qiskit_aer.noise import NoiseModel, depolarizing_error
+    p1 = float(cfg.get("heron_r2_noise_p1", 0.0003))  # median 1Q ~0.03%
+    p2 = float(cfg.get("heron_r2_noise_p2", 0.004))   # median 2Q ECR ~0.4%
+    nm = NoiseModel()
+    err_1q = depolarizing_error(p1, 1)
+    err_2q = depolarizing_error(p2, 2)
+    for gate in ["u1", "u2", "u3", "h", "rz", "sx", "x"]:
+        nm.add_all_qubit_quantum_error(err_1q, gate)
+    for gate in ["cx", "ecr"]:
+        nm.add_all_qubit_quantum_error(err_2q, gate)
+    return nm
+
+
+def _make_noisy_sampler(backend_name: str, use_gpu: bool, cfg: dict = None):
     from qiskit.primitives import BackendSampler
     from qiskit_aer import AerSimulator
     from qiskit_aer.noise import NoiseModel
 
-    real_backend = QiskitRuntimeService().backend(backend_name)
-    noise_model = NoiseModel.from_backend(real_backend)
+    cfg = cfg or {}
+    try:
+        from qiskit_ibm_runtime import QiskitRuntimeService
+        real_backend = QiskitRuntimeService().backend(backend_name)
+        noise_model = NoiseModel.from_backend(real_backend)
+        logger.info(f"[NOISE] Loaded model from IBM API ({backend_name})")
+    except Exception as e:
+        logger.warning(f"[NOISE] IBM API failed ({e}); using Heron R2 fallback params")
+        noise_model = _heron_r2_noise_model(cfg)
+
     method = "tensor_network" if use_gpu else "matrix_product_state"
     sim_kw = dict(method=method, noise_model=noise_model)
     if use_gpu:
@@ -208,7 +230,7 @@ def run_model(model: str, X_tr, y_tr, X_te, y_te, cfg: dict):
         from qiskit_machine_learning.kernels import FidelityQuantumKernel
         from qiskit_machine_learning.algorithms import PegasosQSVC
 
-        sampler = _make_noisy_sampler(backend, use_gpu)
+        sampler = _make_noisy_sampler(backend, use_gpu, cfg)
         fidelity = ComputeUncompute(sampler=sampler)
         qkernel = FidelityQuantumKernel(feature_map=fm, fidelity=fidelity)
         clf = PegasosQSVC(
@@ -226,7 +248,7 @@ def run_model(model: str, X_tr, y_tr, X_te, y_te, cfg: dict):
     if model == "qnn_noise":
         from qiskit_machine_learning.neural_networks import SamplerQNN
 
-        sampler = _make_noisy_sampler(backend, use_gpu)
+        sampler = _make_noisy_sampler(backend, use_gpu, cfg)
         ansatz, _, wt_params = tools.build_ansatz(n_qubits, reps=reps_ansatz)
         qc, in_params, wt_params = tools.create_qnn_circuit(n_qubits, fm, ansatz)
         qnn = SamplerQNN(
