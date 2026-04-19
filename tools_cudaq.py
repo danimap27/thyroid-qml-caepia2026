@@ -25,11 +25,14 @@ from sklearn.svm import SVC
 from tools import compute_metrics, _QSVM_C, _QSVM_SEED, evaluate_classical_svm
 
 _PI = math.pi
+_noisy_mode = False  # tracks whether density-matrix target is active
 
 
 # ── Simulator target management ───────────────────────────────────────────────
 
 def _use_ideal():
+    global _noisy_mode
+    _noisy_mode = False
     try:
         cudaq.set_target("nvidia")
     except Exception:
@@ -37,6 +40,8 @@ def _use_ideal():
 
 
 def _use_noisy(p1: float, p2: float):
+    global _noisy_mode
+    _noisy_mode = True
     cudaq.set_target("density-matrix-cpu")
     noise = cudaq.NoiseModel()
     for gate in ("h", "ry", "rz"):
@@ -46,6 +51,8 @@ def _use_noisy(p1: float, p2: float):
 
 
 def _clear_noise():
+    global _noisy_mode
+    _noisy_mode = False
     try:
         cudaq.unset_noise()
     except Exception:
@@ -66,6 +73,30 @@ def _zz_fm(x: list[float], n_q: int, reps: int):
             cx(qvec[i], qvec[i + 1])
             rz(2.0 * (_PI - x[i]) * (_PI - x[i + 1]), qvec[i + 1])
             cx(qvec[i], qvec[i + 1])
+
+
+@cudaq.kernel
+def _compute_uncompute(x1: list[float], x2: list[float], n_q: int, reps: int):
+    """Compute-uncompute kernel circuit: K(x1,x2) = P(|0^n>) under U(x1) U†(x2)."""
+    qvec = cudaq.qvector(n_q)
+    # Forward: U(x1)|0>
+    for _ in range(reps):
+        for i in range(n_q):
+            h(qvec[i])
+            rz(2.0 * x1[i], qvec[i])
+        for i in range(n_q - 1):
+            cx(qvec[i], qvec[i + 1])
+            rz(2.0 * (_PI - x1[i]) * (_PI - x1[i + 1]), qvec[i + 1])
+            cx(qvec[i], qvec[i + 1])
+    # Inverse: U†(x2) — reversed gate order, negated Rz angles; H† = H, CX† = CX
+    for _ in range(reps):
+        for i in range(n_q - 2, -1, -1):
+            cx(qvec[i], qvec[i + 1])
+            rz(-2.0 * (_PI - x2[i]) * (_PI - x2[i + 1]), qvec[i + 1])
+            cx(qvec[i], qvec[i + 1])
+        for i in range(n_q - 1, -1, -1):
+            rz(-2.0 * x2[i], qvec[i])
+            h(qvec[i])
 
 
 @cudaq.kernel
@@ -101,18 +132,46 @@ def _vqc(x: list[float],
 
 # ── Fidelity kernel matrix ─────────────────────────────────────────────────────
 
-def _fidelity_matrix(X1: np.ndarray, X2: np.ndarray, reps: int = 1) -> np.ndarray:
+_KERNEL_SHOTS = 2048  # shots for noisy kernel estimation
+
+
+def _fidelity_matrix_ideal(X1: np.ndarray, X2: np.ndarray, reps: int) -> np.ndarray:
+    """Exact statevector fidelity — O(n_samples²) inner products."""
     n_q = X1.shape[1]
     sv1 = [np.array(cudaq.get_state(_zz_fm, x.tolist(), n_q, reps)) for x in X1]
     sv2 = [np.array(cudaq.get_state(_zz_fm, x.tolist(), n_q, reps)) for x in X2]
     K = np.zeros((len(X1), len(X2)))
     for i, s1 in enumerate(sv1):
         for j, s2 in enumerate(sv2):
-            if s1.ndim == 1:
-                K[i, j] = abs(np.vdot(s1, s2)) ** 2
-            else:
-                K[i, j] = abs(np.trace(s1 @ s2))
+            K[i, j] = abs(np.vdot(s1, s2)) ** 2
     return K
+
+
+def _fidelity_matrix_noisy(X1: np.ndarray, X2: np.ndarray, reps: int,
+                            shots: int = _KERNEL_SHOTS) -> np.ndarray:
+    """
+    Noisy kernel via compute-uncompute + sampling.
+    K(x1,x2) ≈ P(|0^n⟩) under U(x1)U†(x2) with depolarizing noise.
+    Evaluates one circuit per kernel element — avoids storing density matrices
+    for all samples simultaneously (prevents OOM/segfault at large n_q).
+    """
+    n_q = X1.shape[1]
+    all_zeros = "0" * n_q
+    K = np.zeros((len(X1), len(X2)))
+    for i, x1 in enumerate(X1):
+        for j, x2 in enumerate(X2):
+            result = cudaq.sample(
+                _compute_uncompute, x1.tolist(), x2.tolist(), n_q, reps,
+                shots_count=shots,
+            )
+            K[i, j] = result.count(all_zeros) / shots
+    return K
+
+
+def _fidelity_matrix(X1: np.ndarray, X2: np.ndarray, reps: int = 1) -> np.ndarray:
+    if _noisy_mode:
+        return _fidelity_matrix_noisy(X1, X2, reps)
+    return _fidelity_matrix_ideal(X1, X2, reps)
 
 
 # ── Quantum kernel SVM ─────────────────────────────────────────────────────────
