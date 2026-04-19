@@ -117,7 +117,33 @@ def _make_noisy_sampler(backend_name: str, use_gpu: bool):
     return BackendSampler(backend=AerSimulator(**sim_kw))
 
 
+def _run_model_cudaq(model: str, X_tr, y_tr, X_te, y_te, cfg: dict):
+    import tools_cudaq as tc
+    from tools import evaluate_classical_svm
+
+    n_q = X_tr.shape[1]
+    reps_fm = int(cfg.get("reps_fm", 1))
+    reps_ansatz = int(cfg.get("reps_ansatz", 1))
+    p1 = float(cfg.get("cudaq_noise_p1", 0.001))
+    p2 = float(cfg.get("cudaq_noise_p2", 0.005))
+
+    if model == "svm_classical":
+        return evaluate_classical_svm(X_tr, y_tr, X_te, y_te)
+    if model == "pegasos_ideal":
+        return tc.evaluate_qsvm_statevector(n_q, reps_fm, X_tr, y_tr, X_te, y_te)
+    if model == "qnn_ideal":
+        return tc.evaluate_qnn_statevector(n_q, reps_fm, reps_ansatz, X_tr, y_tr, X_te, y_te)
+    if model == "pegasos_noise":
+        return tc.evaluate_qsvm_noise_sim(n_q, reps_fm, X_tr, y_tr, X_te, y_te, p1=p1, p2=p2)
+    if model == "qnn_noise":
+        return tc.evaluate_qnn_noise_sim(n_q, reps_fm, reps_ansatz, X_tr, y_tr, X_te, y_te, p1=p1, p2=p2)
+    raise ValueError(f"Unknown model: {model}")
+
+
 def run_model(model: str, X_tr, y_tr, X_te, y_te, cfg: dict):
+    if cfg.get("quantum_backend", "qiskit") == "cudaq":
+        return _run_model_cudaq(model, X_tr, y_tr, X_te, y_te, cfg)
+
     import tools
     from tools import (
         createFeatureMapLinear,
@@ -255,8 +281,9 @@ def execute_run(run_spec: dict, cfg: dict, machine_id: str = "local"):
     logger.info(f"[START] {run_id} | model={model} subset={subset} seed={seed}")
 
     np.random.seed(seed)
-    from qiskit_algorithms.utils import algorithm_globals
-    algorithm_globals.random_seed = seed
+    if cfg.get("quantum_backend", "qiskit") == "qiskit":
+        from qiskit_algorithms.utils import algorithm_globals
+        algorithm_globals.random_seed = seed
 
     X, y = load_dataset(cfg.get("data_file", DATA_FILE))
     X_tr, y_tr, X_te, y_te, indices = prepare_split(
@@ -352,9 +379,13 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--export-commands", action="store_true")
     ap.add_argument("--machine-id", default="local")
+    ap.add_argument("--backend", choices=["qiskit", "cudaq"], default=None,
+                    help="Override quantum_backend in config.yaml")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
+    if args.backend:
+        cfg["quantum_backend"] = args.backend
     all_runs = list(iter_runs(cfg))
 
     if args.export_commands:

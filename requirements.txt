@@ -10,3 +10,4 @@ qiskit-ibm-runtime==0.43.1
 qiskit-machine-learning==0.8.3
 torch>=2.0
 pmlb>=1.0.1
+# cudaq>=0.8.0  # optional: uncomment for --backend cudaq (requires CUDA + custatevec)

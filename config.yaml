@@ -42,6 +42,13 @@ reps_ansatz: 1
 backend_name: "ibm_fez"
 use_gpu: true
 
+# ── Backend selection ─────────────────────────────────────────────────────────
+# "qiskit"  — Qiskit Aer (default, uses qiskit-aer-gpu for noisy models)
+# "cudaq"   — CUDA-Q / custatevec (override with: python runner.py --backend cudaq)
+quantum_backend: "qiskit"
+cudaq_noise_p1: 0.001   # single-qubit depolarizing error (approx. IBM superconducting)
+cudaq_noise_p2: 0.005   # two-qubit (CX) depolarizing error
+
 # ── SLURM phases ─────────────────────────────────────────────────────────────
 # Phase 1 — classical baseline and ideal quantum models (fast).
 # Phase 2 — noisy quantum models (slow; higher wall-clock per run).
