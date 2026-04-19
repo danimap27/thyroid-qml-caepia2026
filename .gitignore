@@ -1,0 +1,31 @@
+# Results and logs
+results/
+logs/
+cmds_*.txt
+*.out
+*.err
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+
+# IBM Quantum
+.qiskit/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Paper build
+paper/tables/*.tex
+paper/*.aux
+paper/*.log
+paper/*.toc
+paper/*.out
+paper/*.bbl
+paper/*.blg

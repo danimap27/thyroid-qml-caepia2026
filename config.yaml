@@ -1,0 +1,120 @@
+# =============================================================================
+# config.yaml — Thyroid cancer recurrence QML experiment sweep.
+# Parameters consumed by runner.py and the manager HUB from core/manager.py.
+# =============================================================================
+
+experiment_name: "thyroid_qml_caepia2026"
+conda_env: "thyroid-qml"
+slurm_script: "core/slurm_generic.sh"
+
+# ── I/O ──────────────────────────────────────────────────────────────────────
+data_file: "thyroid_clean.xlsx"
+output_dir: "./results"
+tables_dir: "./paper/tables"
+
+# ── Experiment dimensions ────────────────────────────────────────────────────
+test_size: 0.3
+seeds: [12345]
+
+models:
+  - name: "svm_classical"
+    label: "\\textsc{SVM}"
+  - name: "pegasos_ideal"
+    label: "\\textsc{Pegasos}$_\\mathrm{id}$"
+  - name: "pegasos_noise"
+    label: "\\textsc{Pegasos}$_\\mathrm{noise}$"
+  - name: "qnn_ideal"
+    label: "\\textsc{QNN}$_\\mathrm{id}$"
+  - name: "qnn_noise"
+    label: "\\textsc{QNN}$_\\mathrm{noise}$"
+
+subsets:
+  - name: "all"
+    label: "All features (13)"
+  - name: "top9"
+    label: "Top-9 (RULEx)"
+  - name: "top4"
+    label: "Top-4 (RULEx)"
+
+# ── Quantum circuit configuration ────────────────────────────────────────────
+reps_fm: 1
+reps_ansatz: 1
+backend_name: "ibm_brisbane"
+use_gpu: false
+
+# ── SLURM phases ─────────────────────────────────────────────────────────────
+# Phase 1 — classical baseline and ideal quantum models (fast).
+# Phase 2 — noisy quantum models (slow; higher wall-clock per run).
+phases:
+  - id: "1"
+    name: "ideal"
+    file: "cmds_1_ideal.txt"
+    description: "Phase 1 — classical + ideal quantum"
+    filters:
+      noise: false
+
+  - id: "2"
+    name: "noise"
+    file: "cmds_2_noise.txt"
+    description: "Phase 2 — noisy quantum (AerSimulator + IBM noise model)"
+    filters:
+      noise: true
+
+expected_runs: 15
+
+# ── Monitor summary ──────────────────────────────────────────────────────────
+results:
+  file_pattern: "*.csv"
+  group_by: ["model", "subset"]
+  metrics: ["accuracy", "sensitivity", "specificity", "training_time"]
+
+# ── LaTeX labels ─────────────────────────────────────────────────────────────
+labels:
+  model:
+    svm_classical: "\\textsc{SVM}"
+    pegasos_ideal: "\\textsc{Pegasos}$_\\mathrm{id}$"
+    pegasos_noise: "\\textsc{Pegasos}$_\\mathrm{noise}$"
+    qnn_ideal:     "\\textsc{QNN}$_\\mathrm{id}$"
+    qnn_noise:     "\\textsc{QNN}$_\\mathrm{noise}$"
+  subset:
+    all:  "All"
+    top9: "Top-9"
+    top4: "Top-4"
+
+# ── LaTeX tables ─────────────────────────────────────────────────────────────
+tables:
+  - name: "tab_baseline_all"
+    caption: "Performance on the full 13-feature matrix."
+    label: "tab:baseline_all"
+    rows: "model"
+    filter:
+      subset: "all"
+    metrics:
+      - column: "accuracy"
+        label: "Acc~(\\%)"
+        pct: true
+      - column: "sensitivity"
+        label: "Sens~(\\%)"
+        pct: true
+      - column: "specificity"
+        label: "Spec~(\\%)"
+        pct: true
+      - column: "training_time"
+        label: "$t_\\mathrm{train}$~(s)"
+        pct: false
+
+  - name: "tab_post_fs"
+    caption: "Performance after RULEx-driven feature selection (Top-9 and Top-4 subsets) across all models."
+    label: "tab:post_fs"
+    rows: "model"
+    cols: "subset"
+    metrics:
+      - column: "accuracy"
+        label: "Acc~(\\%)"
+        pct: true
+      - column: "sensitivity"
+        label: "Sens~(\\%)"
+        pct: true
+      - column: "training_time"
+        label: "$t$~(s)"
+        pct: false

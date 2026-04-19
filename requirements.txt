@@ -1,0 +1,12 @@
+numpy>=1.26,<2.1
+pandas>=2.0
+scikit-learn>=1.3
+openpyxl>=3.1
+pyyaml>=6.0
+qiskit==1.4.5
+qiskit-aer==0.16.0
+qiskit-algorithms==0.3.1
+qiskit-ibm-runtime==0.43.1
+qiskit-machine-learning==0.8.3
+torch>=2.0
+pmlb>=1.0.1
