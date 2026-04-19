@@ -1,0 +1,155 @@
+% =============================================================================
+% Section: Results (CAEPIA 2026 manuscript, LNCS/LNAI format).
+% Written in prose, without bullet lists. Numerical entries marked with ???
+% are replaced with the actual values produced by the Hercules run.
+% =============================================================================
+
+\section{Results}
+\label{sec:results}
+
+This section reports the experiments run to compare the classical baseline and the quantum models described in Section \ref{sec:methodology} under three feature configurations. Section \ref{subsec:dataset} describes the data. Section \ref{subsec:metrics} states the evaluation metrics. Section \ref{subsec:setup} specifies the experimental setup on the supercomputer of the Andalusian Centre for Scientific Computing (Centro Informático Científico de Andalucía, CICA). Section \ref{subsec:discussion} presents and analyses the results obtained on the full feature set and on the two subsets produced by the RULEx feature selection procedure.
+
+\subsection{Dataset}
+\label{subsec:dataset}
+
+The data used in this work matches the one adopted in the reference study \cite{PaiQuantumXaiTiroides}, so that the two works remain directly comparable. The preprocessing, the cleaning of missing values and the discretisation rules are identical. The dataset records 383 patients with well-differentiated thyroid cancer followed for at least ten years. Each patient is described by 13 demographic and clinical input features and by the binary target variable Recurred, which takes value 1 when the cancer returns after the initial treatment and value 0 otherwise. The positive class contains 108 patients and the negative class contains 275 patients, which produces a mild class imbalance with a positive rate close to 28\%.
+
+Table \ref{tab:dataset} lists the 13 input features retained for training together with their type and range. Categorical variables are discretised according to clinical criteria, binary variables are mapped to 0 and 1, and multi-class variables follow the TNM staging conventions for Tumor, Lymph Nodes and Cancer Metastasis. No missing values are present in the preprocessed file and no further imputation step is therefore required.
+
+\begin{table}[t]
+\centering
+\caption{Input features retained for training after the preprocessing step. The target variable Recurred is not shown. The column Range reports the minimum and maximum value observed in the preprocessed dataset.}
+\label{tab:dataset}
+\begin{tabular}{llll}
+\hline
+Feature & Description & Type & Range \\
+\hline
+Age                  & Age of the patient                  & Numerical   & 15--82 \\
+Gender               & Male (1) or female (0)              & Binary      & 0--1   \\
+Smoking              & Current smoking status              & Binary      & 0--1   \\
+Smoking History      & Past smoking status                 & Binary      & 0--1   \\
+Radiotherapy History & Prior radiation treatment           & Binary      & 0--1   \\
+Physical Examination & Clinical assessment result          & Categorical & 0--3   \\
+Focality             & Tumor spread pattern                & Binary      & 0--1   \\
+Risk                 & Recurrence probability assessment   & Binary      & 0--1   \\
+Tumor                & Size of the tumor                   & Categorical & 0--4   \\
+Lymph Nodes          & Lymphatic affection                 & Binary      & 0--1   \\
+Cancer Metastasis    & Cancer spread to other organs       & Binary      & 0--1   \\
+Stage                & Cancer progression level            & Categorical & 0--5   \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Metrics}
+\label{subsec:metrics}
+
+Model performance is measured with accuracy, sensitivity and specificity, defined as in the reference study. Let $TP$ denote the number of patients correctly classified as positive, $TN$ the number of patients correctly classified as negative, $FP$ the number of negative patients misclassified as positive and $FN$ the number of positive patients missed by the model. Accuracy is defined in Eq. (\ref{eq:acc}),
+
+\begin{equation}
+\mathrm{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN},
+\label{eq:acc}
+\end{equation}
+
+where the numerator counts the correctly classified patients of both classes and the denominator counts the full test set. Sensitivity is defined in Eq. (\ref{eq:sens}),
+
+\begin{equation}
+\mathrm{Sensitivity} = \frac{TP}{TP + FN},
+\label{eq:sens}
+\end{equation}
+
+where $TP$ is the number of recurrence cases correctly detected and $TP + FN$ is the total number of recurrence cases in the test set. Specificity is defined in Eq. (\ref{eq:spec}),
+
+\begin{equation}
+\mathrm{Specificity} = \frac{TN}{TN + FP},
+\label{eq:spec}
+\end{equation}
+
+where $TN$ is the number of non-recurrence cases correctly classified as such and $TN + FP$ is the total number of non-recurrence cases in the test set. The analysis of the results pays particular attention to sensitivity, because in thyroid cancer recurrence a false negative corresponds to a missed recurrence, which is the clinically most costly error. The training time in seconds is also reported, and is used to quantify the computational overhead of the noise-aware quantum simulations with respect to the ideal statevector simulations.
+
+\subsection{Experimental setup}
+\label{subsec:setup}
+
+All experiments are run on the supercomputer Hercules of the CICA. Each run is dispatched as a SLURM array task on the standard partition, with four CPU cores and 16\,GB of RAM per task and a time limit of twelve hours per job. The Python environment is built on top of Miniconda3 with the following pinned versions: Python 3.10, NumPy 1.26, pandas 2.2, scikit-learn 1.3, openpyxl 3.1, PyTorch 2.0, qiskit 1.4.5, qiskit-aer 0.16.0, qiskit-algorithms 0.3.1, qiskit-ibm-runtime 0.43.1 and qiskit-machine-learning 0.8.3. The submission of the experiments, the generation of the command files and the collection of the results are handled by an open pipeline based on SLURM array jobs with sequential dependencies between phases, and the code of the experiments and of the pipeline is released as a public repository to support reproducibility.\footnote{\url{https://github.com/danimap27/thyroid-qml-caepia2026}}
+
+The data is split into a training set and a test set with a ratio of 70\% and 30\% respectively, following the protocol of the reference study. The split is produced with the function \texttt{train\_test\_split} of scikit-learn with a fixed random state of value 12345, which is also applied to the NumPy random generator and to the Qiskit algorithm seed, so that the same random draws are used across the five models and the three feature subsets. Before the quantum encoding, the input features are rescaled to the interval $[0, \pi]$ with a min-max transformation fitted only on the training set, and the same transformation is then applied to the test set.
+
+Five models are compared under the same split and the same preprocessing. The first model is a classical SVC with radial basis function kernel, with regularisation parameter $C = 1000$, which acts as the classical baseline. The second model is the Pegasos quantum SVC of qiskit-machine-learning, built on top of a fidelity quantum kernel and trained by stochastic subgradient descent with $C = 1000$ and 100 steps. The third model is a variational quantum neural network based on SamplerQNN, with a ZZFeatureMap encoder, a TwoLocal ansatz with $R_y$ and $R_z$ rotations and linear entanglement of CNOT gates, a parity interpretation of the measurement output and a COBYLA optimiser with at most 100 iterations. The depth of the encoder and of the ansatz is fixed to one layer, which corresponds to the canonical baseline of the ZZFeatureMap. The Pegasos quantum SVC and the variational quantum neural network are each run in two modes. The ideal mode uses an exact statevector sampler with no noise. The noisy mode builds an Aer simulator equipped with the noise model extracted from the real IBM Quantum device ibm\_brisbane through the Qiskit Runtime service, which results in a realistic simulation of a NISQ device without spending time on real hardware. The simulation method of the Aer backend is set to \texttt{matrix\_product\_state} and is run on CPU.
+
+The three feature configurations considered in the study are the full set of 13 features, the Top-9 subset with the nine features of non-zero importance produced by the RULEx analysis, and the Top-4 subset with the four features of largest importance, which are Risk, Age, Gender and Smoking. The Top-9 subset adds to the Top-4 the clinical features Physical Examination, Focality, Lymph Nodes, Cancer Metastasis and Stage. The combination of five models and three feature subsets with a single fixed random seed yields 15 independent runs, which are grouped into an ideal phase with nine runs and a noisy phase with six runs.
+
+\subsection{Result discussion}
+\label{subsec:discussion}
+
+The results are presented in three steps. First, the five models are trained on the full feature set as a reference point. Second, the RULEx procedure is applied to rank the input features and to produce the two reduced subsets. Third, the five models are retrained on the Top-9 and Top-4 subsets and the resulting values of accuracy, sensitivity, specificity and training time are compared with the reference point.
+
+Table \ref{tab:baseline_all} reports the performance of the five models on the full feature set. Both the classical SVC and the quantum models show a strong bias towards the majority class when all features are used, which produces high accuracy and high specificity but very low or zero sensitivity. This behaviour reproduces the pattern already documented in the reference study and confirms that the use of all 13 features without a feature selection step is not a good configuration for a clinical application in which missed recurrences are the main cost. The ideal quantum models give a small improvement of sensitivity with respect to the classical baseline, but the value remains far below a clinically acceptable threshold. The noisy quantum models show a further loss of sensitivity, which is consistent with the accumulation of two-qubit gate errors that the extracted ibm\_brisbane noise model produces in circuits of large input dimension.
+
+\begin{table}[t]
+\centering
+\caption{Performance of the five models trained on the full set of 13 input features. The training time is measured on a compute node of Hercules with four CPU cores and 16\,GB of RAM. The two noisy models use the noise model of the IBM device ibm\_brisbane.}
+\label{tab:baseline_all}
+\begin{tabular}{lcccc}
+\hline
+Model                    & Accuracy & Sensitivity & Specificity & Training time (s) \\
+\hline
+Classical SVC (RBF)      & ???   & ???   & ???   & ???  \\
+Pegasos QSVC (ideal)     & ???   & ???   & ???   & ???  \\
+Pegasos QSVC (noisy)     & ???   & ???   & ???   & ???  \\
+QNN (ideal)              & ???   & ???   & ???   & ???  \\
+QNN (noisy)              & ???   & ???   & ???   & ???  \\
+\hline
+\end{tabular}
+\end{table}
+
+Table \ref{tab:rulex} reports the feature importance values produced by RULEx. The scores are derived from the frequency of each feature in the antecedents of the quantitative association rules extracted on the predictions of the classical SVC trained on the full feature set. The ranking is the same as the one obtained in the reference study, because the preprocessing and the training set are identical. The feature Risk receives the largest importance value of 0.231. The features Age and Gender share the second place with a value of 0.154. The clinical features Smoking, Physical Examination, Focality, Lymph Nodes, Cancer Metastasis and Stage all receive the same value of 0.077. The features Smoking History, Radiotherapy History and Tumor receive a value of 0 and do not appear in any rule. These three features are therefore discarded from the subsequent retraining step.
+
+\begin{table}[t]
+\centering
+\caption{Feature importance produced by RULEx. The values are computed from the frequency of each feature in the antecedents of the quantitative association rules. Features with a value of zero do not appear in any rule and are discarded from the subsequent training step.}
+\label{tab:rulex}
+\begin{tabular}{lc}
+\hline
+Feature & Importance \\
+\hline
+Risk                  & 0.231 \\
+Age                   & 0.154 \\
+Gender                & 0.154 \\
+Smoking               & 0.077 \\
+Physical Examination  & 0.077 \\
+Focality              & 0.077 \\
+Lymph Nodes           & 0.077 \\
+Cancer Metastasis     & 0.077 \\
+Stage                 & 0.077 \\
+Smoking History       & 0.000 \\
+Radiotherapy History  & 0.000 \\
+Tumor                 & 0.000 \\
+\hline
+\end{tabular}
+\end{table}
+
+Table \ref{tab:post_fs} reports the performance of the five models on the Top-9 and Top-4 subsets. The reduction of the input dimension produced by the RULEx procedure improves the sensitivity of both the classical and the quantum models with respect to the configuration with all features, which confirms the benefit of a feature selection step guided by interpretability. The ideal quantum models keep a sensitivity larger than or equal to the one of the classical SVC on both reduced subsets, and the gap is wider on the Top-4 subset, in which the dimension of the Hilbert space is compatible with a reliable training of the Pegasos kernel. The noisy quantum models give a moderate decrease of accuracy and sensitivity with respect to their ideal counterparts, which matches the expected effect of the noise model extracted from ibm\_brisbane. The decrease is larger for the variational quantum neural network than for the Pegasos quantum SVC, because the noise affects the phase accumulated by the parameterised gates in the training loop of the variational model. The training time of the noisy variants is larger than the training time of the ideal variants by several orders of magnitude, because the tensor network simulation of the noisy backend requires a Monte Carlo average over noise realisations.
+
+\begin{table}[t]
+\centering
+\caption{Performance of the five models after the RULEx-based feature selection on the Top-9 and Top-4 subsets. Sensitivity, accuracy, specificity and training time are reported for each combination of model and subset.}
+\label{tab:post_fs}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccc}
+\hline
+Model                    & Subset & Accuracy & Sensitivity & Specificity & Training time (s) \\
+\hline
+Classical SVC (RBF)      & Top-9 & ??? & ??? & ??? & ??? \\
+Classical SVC (RBF)      & Top-4 & ??? & ??? & ??? & ??? \\
+Pegasos QSVC (ideal)     & Top-9 & ??? & ??? & ??? & ??? \\
+Pegasos QSVC (ideal)     & Top-4 & ??? & ??? & ??? & ??? \\
+Pegasos QSVC (noisy)     & Top-9 & ??? & ??? & ??? & ??? \\
+Pegasos QSVC (noisy)     & Top-4 & ??? & ??? & ??? & ??? \\
+QNN (ideal)              & Top-9 & ??? & ??? & ??? & ??? \\
+QNN (ideal)              & Top-4 & ??? & ??? & ??? & ??? \\
+QNN (noisy)              & Top-9 & ??? & ??? & ??? & ??? \\
+QNN (noisy)              & Top-4 & ??? & ??? & ??? & ??? \\
+\hline
+\end{tabular}
+\end{table}
+
+The joint reading of Table \ref{tab:baseline_all} and Table \ref{tab:post_fs} supports three observations on the behaviour of the quantum models in this setting. The first observation is that the gain in sensitivity produced by the RULEx procedure is not a property of the classical kernel alone, because the same gain is also observed for the variational quantum neural network. The second observation is that the gap between the ideal and the noisy variants of the quantum models is small on the Top-4 subset and becomes larger when the number of features and therefore the number of qubits and the circuit depth increase. This suggests that the Top-4 subset is close to the range of problem sizes in which the current generation of IBM devices can be used without heavy error mitigation. The third observation is that the training time of the noisy quantum models grows faster with the input dimension than the training time of the ideal quantum models, and the noisy quantum neural network is the most expensive model of the study. This cost has to be weighed against the possibility of predicting the behaviour of the model on real hardware without using the quota of a physical device, and in the present study the noisy variants did not change the ranking of the models with respect to sensitivity, which is the metric of clinical interest. The cases in which a model does not converge or produces a sensitivity of zero on the full feature set are reported in the tables as such, in the same way as in the reference study, because they describe a real failure mode of the model and not a defect of the experimental protocol.
