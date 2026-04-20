@@ -145,7 +145,7 @@ def _heron_r2_noise_model(cfg: dict):
 
 
 def _make_noisy_sampler(backend_name: str, use_gpu: bool, cfg: dict = None):
-    from qiskit.primitives import BackendSampler
+    from qiskit.primitives import BackendSamplerV2 as BackendSampler
     from qiskit_aer import AerSimulator
     from qiskit_aer.noise import NoiseModel
 
